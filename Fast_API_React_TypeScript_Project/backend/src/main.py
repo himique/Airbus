@@ -6,9 +6,11 @@ from pydantic import ValidationError
 import models
 import crud
 import schemas
+from enums import CountriesCapitals, UserRole
 from auth import auth
 from database import engine, create_tables # Import necessary components
 from depencies import get_db
+from posts import posts
 
 from fastapi.security import OAuth2PasswordRequestForm
 
@@ -22,6 +24,27 @@ app = FastAPI(
 )
 
 # --- API Endpoints ---
+
+@app.post("/logout", summary="Logout and set auth cookie", response_model=schemas.Message, tags=["Login system"])
+async def logout(
+    response: Response, # Нужен для установки cookie
+    
+):
+
+
+    # Устанавливаем cookie
+    response.set_cookie(
+        key=auth.ACCESS_TOKEN_COOKIE_NAME,
+        value="",
+        httponly=True,  # !!! Важно: Защита от XSS
+        samesite='lax', # !!! Важно: Защита от CSRF (lax или strict)
+        secure=False,   # !!! ВАЖНО: В продакшене с HTTPS установите True !!!
+        max_age=0,      # Время жизни в секундах
+        path="/",       # Cookie доступна для всего сайта
+    )
+    # print(f"Cookie set for user: {user.username}") # Отладка
+    return {"message": "Logout successful"}
+
 
 @app.post("/login", summary="Login and set auth cookie", response_model=schemas.Message, tags=["Login system"])
 async def login(
@@ -75,6 +98,127 @@ async def read_users_me(
     """Возвращает информацию о текущем аутентифицированном пользователе."""
     # Если запрос дошел сюда, значит пользователь аутентифицирован
     return current_user
+
+# Маршрут ТОЛЬКО для Администраторов
+@app.get("/admin/dashboard", response_model=schemas.Message, tags=["Admin"])
+async def admin_dashboard(
+    # Используем новую зависимость для проверки роли АДМИНА
+    admin_user: Annotated[models.User, Depends(auth.require_admin_user)]
+):
+    """Пример эндпоинта, доступного только админам."""
+    return {"message": f"Welcome to the Admin Dashboard, {admin_user.user}!"}
+
+# Маршрут для постов
+@app.post("/posts", response_model=schemas.Post, tags=["Posts"], status_code=status.HTTP_201_CREATED)
+async def create_new_post(
+    post_data: schemas.PostCreate, # Данные поста из тела запроса, валидируются Pydantic
+    db: AsyncSession = Depends(get_db),
+    current_user: schemas.UserBase = Depends(auth.get_current_user) # Получаем текущего пользователя
+):
+    try:
+         
+        """ Создает новый пост.
+        Пользователь должен быть аутентифицирован.
+        """
+    # Вызываем CRUD функцию для создания поста в БД
+    # Передаем данные поста и имя текущего пользователя как владельца
+    # current_user.user - это поле с уникальным именем пользователя из вашей схемы UserCurrent
+    # которое должно соответствовать User.user и Post.post_owner_user_fk
+        created_post_db = await posts.create_post(db=db, post=post_data, owner_user=current_user.user)
+
+    # FastAPI автоматически преобразует объект SQLAlchemy 'created_post_db' (models.Post)
+    # в схему 'schemas.PostDisplay' для ответа клиенту.
+    # Это работает благодаря `response_model=schemas.PostDisplay` и `from_attributes=True` в схеме.
+    # Pydantic схема PostDisplay ожидает атрибут owner_user, который является объектом User.
+    # В нашей модели Post есть relationship owner_user, который уже загружен (lazy="selectin")
+    # или будет загружен при обращении.
+        return created_post_db
+    except Exception as e:
+        # Логирование ошибки
+        print(f"Error in endpoint /users/post: {e}")
+        # Если create_post уже обработал ошибку БД и перевыбросил ее,
+        # то здесь можно просто вернуть HTTP 500 или более специфичную ошибку.
+        # Если create_post не перевыбрасывает, то нужно обработать здесь.
+        # Пример: если create_post может выбросить кастомное исключение
+        # if isinstance(e, MyCustomDbError):
+        #     raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"An internal error occurred: {str(e)}")
+@app.get("/{post_id}/post", response_model=schemas.PostGetAll, tags=["Posts"], status_code=status.HTTP_201_CREATED)
+async def get_post_by_post_id(
+    post_id: int, 
+    db: AsyncSession = Depends(get_db) 
+):
+    get_post = await posts.get_post_by_id(post_id=post_id, db=db)
+    return get_post
+@app.get("/{post_id}/posts", response_model=List[schemas.Post], tags=["Posts"], status_code=status.HTTP_201_CREATED)
+async def get_posts_from_owner_endpoint(
+    post_user: Annotated[models.User, Depends(auth.get_current_user)],
+    db: AsyncSession = Depends(get_db),
+    skip: int = 0, limit: int = 100,
+    
+):
+    get_posts = await posts.get_posts_from_owner(db=db, post_user=post_user.user, skip=skip, limit=limit)
+    return get_posts
+
+@app.get("/posts", response_model=List[schemas.PostGetAll], tags=["Posts"], status_code=status.HTTP_201_CREATED)
+async def get_posts_endpoint(
+    db: AsyncSession = Depends(get_db),
+    skip: int = 0, limit: int = 100,
+):
+    get_posts = await posts.get_posts(db=db, skip=skip, limit=limit)
+    return get_posts
+         
+@app.post("/{post_id}/members", response_model=schemas.Post, tags=["Posts"], status_code=status.HTTP_201_CREATED)
+async def add_post_member_endpoint(
+    member_data: Annotated[models.User, Depends(auth.get_current_user)],
+    post_id: int,
+    db: AsyncSession = Depends(get_db),
+
+):
+    try:
+        updated_post = await posts.add_member_to_post( # posts - это ваш модуль с функцией
+            db=db,
+            post_id=post_id,
+            username_to_add=member_data.user
+        )
+        return updated_post
+    except HTTPException as e: # Перехватываем HTTPException, выброшенные из posts
+        raise e # И просто перевыбрасываем их, FastAPI их обработает
+    except Exception as e: # Другие неожиданные ошибки
+        # Логируем e
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occurred.")
+# Get enum dictionary 
+@app.delete("/{post_id}/post", response_model=schemas.Message, tags=["Posts"], status_code=status.HTTP_201_CREATED)
+async def delete_post_by_id(
+    member_data: Annotated[models.User, Depends(auth.get_current_user)],
+    post_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    await posts.delete_post_by_id(db=db, post_id=post_id, user=member_data)
+    return {"message": "Post deleted succesful"}
+
+@app.get("/capitals-for-select", response_model=List[schemas.SelectOption], tags=["Enums"])
+async def get_capitals_for_select_options():
+    """
+    Возвращает список столиц в формате, подходящем для HTML <select> или аналогичных UI компонентов.
+    Каждый элемент списка - это объект с полями 'value' и 'label'.
+    """
+    options_list = [
+        schemas.SelectOption(value=member.value, label=member.name.title())
+        for member in CountriesCapitals
+    ]
+    return options_list
+@app.get("/permissions-for-select", response_model=List[schemas.SelectOption], tags=["Enums"])
+async def get_permissions_for_select_options():
+    """
+    Возвращает список столиц в формате, подходящем для HTML <select> или аналогичных UI компонентов.
+    Каждый элемент списка - это объект с полями 'value' и 'label'.
+    """
+    options_list = [
+        schemas.SelectOption(value=member.value, label=member.name.title())
+        for member in UserRole
+    ]
+    return options_list
 
 @app.get("/protected", summary="Example protected endpoint", response_model=schemas.Message, tags=["Login system"])
 async def protected_route(
@@ -161,12 +305,12 @@ async def create_api_user_shopping_cart(user_id: int, user_data: schemas.ItemBas
         raise HTTPException(status_code=500, detail="Internal server error during user creation")
 
 @app.get("/users/{user_id}", response_model=schemas.User, tags=["Users"])
-async def read_single_user(user_id: int, db: AsyncSession = Depends(get_db)):
+async def read_single_user(user_id: Annotated[models.User, Depends(auth.get_current_user)], db: AsyncSession = Depends(get_db)):
     """
     Retrieve a single user by its ID.
     """
  
-    db_user = await crud.get_user_by_id(db, user_id=user_id)
+    db_user = await crud.get_user_by_id(db, user_id=user_id.id)
     print(f"DEBUG: CRUD function returned: {db_user!r}") # <--- ДОБАВЬТЕ ЭТО
     # print(f"DEBUG: Type of returned object: {type(created_item)}") # <--- И ЭТО
     if db_user is None:
@@ -180,12 +324,12 @@ async def read_single_user(user_id: int, db: AsyncSession = Depends(get_db)):
         # Используем model_validate (для Pydantic V2) для создания
         # экземпляра схемы User из объекта SQLAlchemy User.
         # Это должно использовать from_attributes=True рекурсивно.
-        # pydantic_user = schemas.User.model_validate(db_user)
+        pydantic_user = schemas.User.model_validate(db_user)
 
-        # print(f"DEBUG: Pydantic model created successfully: {pydantic_user!r}")
+        print(f"DEBUG: Pydantic model created successfully: {pydantic_user!r}")
         # Если мы дошли сюда, Pydantic смог обработать объект.
         # Возвращаем созданный Pydantic объект, а не ORM объект.
-        # return pydantic_user
+        return pydantic_user
         return db_user
     except ValidationError as e:
         # Если Pydantic сам вызвал ошибку валидации

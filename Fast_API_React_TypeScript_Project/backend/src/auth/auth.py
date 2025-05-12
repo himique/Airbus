@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Annotated, Optional
 from depencies import get_db
 import models
+from enums import UserRole
 import crud
 import exceptrions
 from jose import JWTError, jwt
@@ -97,3 +98,35 @@ async def get_current_user(
     # Можно добавить проверку активности пользователя: if not user.is_active: raise ...
     # print(f"Authentication successful for user: {user.username} (ID: {user.id})") # Отладка
     return user
+
+async def require_admin_user(
+    # Сначала получаем текущего аутентифицированного пользователя
+    current_user: Annotated[models.User, Depends(get_current_user)]
+) -> models.User: # Возвращаем пользователя, если проверка роли прошла
+    """ 
+    Зависимость: Проверяет, что текущий пользователь аутентифицирован 
+    И имеет роль 'admin'. В противном случае вызывает HTTPException 403.
+    """
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, # !!! 403 Forbidden - доступ запрещен (не 401 Unauthorized)
+            detail="Operation not permitted. Administrator privileges required or user are not owner.",
+        )
+    return current_user # Возвращаем пользователя, если он админ
+
+# async def require_user_privileges(
+#     current_user: Annotated[models.User, Depends(get_current_user)]
+# ) -> models.User:
+#     """
+#     Зависимость: Проверяет, что текущий пользователь аутентифицирован
+#     И имеет роль 'user' или 'admin'.
+#     """
+#     # Пример: если бы у нас были еще роли, и мы хотели бы ограничить доступ
+#     # if current_user.role not in [models.UserRole.USER, models.UserRole.ADMIN]:
+#     #     raise HTTPException(
+#     #         status_code=status.HTTP_403_FORBIDDEN,
+#     #         detail="Insufficient privileges.",
+#     #     )
+#     # В текущей ситуации (только User и Admin), get_current_user уже достаточен.
+#     # Эта функция здесь больше для иллюстрации.
+#     return current_user

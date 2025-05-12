@@ -64,7 +64,7 @@ async def get_users(db: AsyncSession, skip: int = 0, limit: int = 100)-> models.
     return result.scalars().all()
 
 
-async def update_user(db: AsyncSession, user_id: int, user_update: schemas.ItemUpdate):
+async def update_user(db: AsyncSession, user_id: int, user_update: schemas.UserBase):
     """Updates an existing item."""
     db_item = await get_user_by_id(db, user_id)
     if not db_item:
