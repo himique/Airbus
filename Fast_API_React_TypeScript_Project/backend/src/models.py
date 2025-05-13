@@ -67,4 +67,4 @@ class PostMember(Base):
 
     user_member_info = relationship("User", foreign_keys=[member_user],back_populates="posts_members", lazy="selectin")
     user_member_info_posts = relationship("Post", back_populates="posts_members_posts", lazy="selectin")
-    post_info = relationship("Post", foreign_keys=[post_id],back_populates="member_entries", lazy="selectin")
+    post_info = relationship("Post", foreign_keys=[post_id], back_populates="member_entries", lazy="selectin")

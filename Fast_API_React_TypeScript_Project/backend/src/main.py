@@ -18,9 +18,9 @@ from fastapi.security import OAuth2PasswordRequestForm
 
 # --- FastAPI App Initialization ---
 app = FastAPI(
-    title="FastAPI PostgreSQL API",
+    title="Take passanger FastAPI",
     description="Education API",
-    version="0.2.0",
+    version="0.3.5",
 )
 
 # --- API Endpoints ---
@@ -196,6 +196,19 @@ async def delete_post_by_id(
 ):
     await posts.delete_post_by_id(db=db, post_id=post_id, user=member_data)
     return {"message": "Post deleted succesful"}
+
+@app.put("/{post_id}/post", response_model=schemas.PostCreate, tags=["Posts"], status_code=status.HTTP_201_CREATED)
+async def update_post(
+    member_data: Annotated[models.User, Depends(auth.get_current_user)],
+    post_id: int,
+    post_update: schemas.PostCreate,
+    db: AsyncSession = Depends(get_db),
+):
+    updated_post = await posts.update_post(db=db, post_id=post_id, post_update=post_update, post_owner=member_data)
+    if updated_post is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
+    return updated_post
+
 
 @app.get("/capitals-for-select", response_model=List[schemas.SelectOption], tags=["Enums"])
 async def get_capitals_for_select_options():

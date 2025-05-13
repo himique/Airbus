@@ -146,6 +146,33 @@ async def get_post_by_id(db: AsyncSession, post_id: int)-> models.Post | None:
             detail="An error occurred while fetching the post from the database."
         )
 
+
+async def update_post(db: AsyncSession, post_id: int, post_update: schemas.PostCreate, post_owner: models.User)-> models.Post:
+    """Updates an existing item."""
+    db_post = await get_post_by_id(db, post_id)
+    if not db_post:
+        return None # Item not found
+    is_owner = (post_owner.user == db_post.post_owner_user)
+    is_admin = False
+    if not is_owner:
+        await auth.require_admin_user(post_owner)
+        is_admin=True
+    if is_owner or is_admin:
+        update_data = post_update.model_dump(exclude_unset=True)
+    # Update the SQLAlchemy model instance
+        for key, value in update_data.items():
+            setattr(db_post, key, value)
+        db.add(db_post) # Add the updated object to the session
+        await db.commit()
+        await db.refresh(db_post)
+        return db_post
+    else:
+        # Если ни владелец, ни админ (и проверка на админа не выбросила исключение)
+        raise HTTPException(
+            status_code=403,
+            detail="У вас нет прав для изменения этого поста."
+        )
+
 async def delete_post_by_id(db: AsyncSession, post_id: int, user: models.User)-> models.Post | None:
     db_post = await get_post_by_id(db, post_id)
     if not db_post:

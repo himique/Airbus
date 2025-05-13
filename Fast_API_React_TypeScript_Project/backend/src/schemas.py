@@ -71,7 +71,6 @@ class PostGetAll(Post):
 class PostMemberCreate(BaseModel):
     # post_id_fk и member_user_fk будут предоставлены в эндпоинте
     pass # Пустая, так как ключи будут параметрами пути/тела запроса
-
 # Base schema for common attributes
 class ItemBase(BaseModel):
     name: str

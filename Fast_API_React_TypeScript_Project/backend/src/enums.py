@@ -1,11 +1,11 @@
 
 import enum
 
-class CountriesCapitals(str,enum.Enum):
+class CountriesCapitals(str, enum.Enum):
     LONDON = "london"
     BERLIN = "berlin"
     PARIS = "paris"
-    KIEW = "kiew"
+    KYIV  = "kyiv"
 
 # capitals_options_list = []
 # for member in CountriesCapitals:
