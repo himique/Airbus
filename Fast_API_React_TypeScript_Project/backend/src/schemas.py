@@ -1,10 +1,12 @@
 # schemas.py
 from pydantic import BaseModel, EmailStr, ConfigDict, field_validator, model_validator, Field
 from typing import Optional, List, Any
-from enums import CountriesCapitals, UserRole
+from enums import CountriesCapitals, UserRole, PostStatus
 from exceptrions import wrong_trip_place
+from datetime import datetime, timezone
+import pytz
 # --- Pydantic Schemas ---
-
+BERLIN_TZ = pytz.timezone('Europe/Berlin')
 # --- Posts Schemas ---
 class PostBase(BaseModel):
     post_owner_user: str
@@ -12,10 +14,45 @@ class PostBase(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 class PostOwnerDisplay(BaseModel):
     post_id:int
+    # status: PostStatus
     model_config = ConfigDict(from_attributes=True)
+# class DateAndTimeZone(BaseModel):
+    
+#     model_config = ConfigDict(from_attributes=True)
 class PostCreate(BaseModel):
     trip_from: CountriesCapitals
     trip_to: CountriesCapitals
+    departure_datetime: datetime
+    @field_validator('departure_datetime')
+    @classmethod
+    def check_departure_not_in_past(cls, value: datetime) -> datetime:
+        # Убедимся, что 'value' уже является timezone-aware, если нет - сделаем его aware (предполагая UTC, если нет инфо)
+        # Pydantic обычно хорошо обрабатывает строки ISO 8601 с информацией о таймзоне.
+        # Если клиент присылает naive datetime, нужно решить, как его интерпретировать.
+        
+        # Сделаем текущее время timezone-aware (UTC) для корректного сравнения
+        now_utc = datetime.now(timezone.utc)
+        print(f"--- DEBUG VALIDATOR ---")
+        print(f"Input 'value': {value} (tzinfo: {value.tzinfo})")
+        print(f"Current 'now_utc': {now_utc} (tzinfo: {now_utc.tzinfo})")
+        # Если полученное значение не имеет информации о часовом поясе (naive)
+        is_naive = value.tzinfo is None or value.tzinfo.utcoffset(value) is None
+        print(f"Is 'value' naive? {is_naive}")
+        if is_naive:
+            if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
+                # value = value.replace(tzinfo=timezone.utc) # Assume UTC if naive
+                raise ValueError("departure_datetime MUST be timezone-aware after attempting to set UTC.")
+        comparison_result = value < now_utc
+        print(f"Comparison 'value < now_utc': {comparison_result}")
+        print(f"--- END DEBUG VALIDATOR ---")
+        if value < now_utc:
+            error_msg = (
+                f"Дата и время отправления ({value}) не могут быть в прошлом. "
+                f"Текущее время UTC на сервере: {now_utc}."
+            )
+            raise ValueError(error_msg)
+        
+        return value
     count_of_places: int = Field(
         default=1, # Значение по умолчанию, если клиент не передаст
         ge=1,      # ge = greater than or equal (больше или равно) - минимальное количество мест
@@ -49,25 +86,32 @@ class PostCreate(BaseModel):
                 # которое FastAPI затем преобразует в HTTP 422 с нужным сообщением.
                 # FastAPI хорошо обрабатывает ValueError из валидаторов Pydantic.
         return values # Важно вернуть объект values (или его измененную версию)
-    
-class Post(PostCreate):
-    already_engaged: int
-    model_config = ConfigDict(from_attributes=True)
-class PostMemberUserSchema(BaseModel):
-    # Эта схема будет представлять пользователя В КОНТЕКСТЕ членства в посте
-    member_user: str # Имя пользователя
-    post_id: int
-    model_config = ConfigDict(from_attributes=True) # Для Pydantic V2
 class PostGetAllMemberUserSchema(BaseModel):
     member_user: str # Имя пользователя
     model_config = ConfigDict(from_attributes=True) # Для Pydantic V2
-class PostGetAll(Post):
+class Post(BaseModel):
+    trip_from: CountriesCapitals
+    trip_to: CountriesCapitals
+    departure_datetime: datetime
     post_id:int
+    already_engaged: int
+    created_at: datetime
+    updated_at: datetime
+    status: PostStatus
+    posts_members_posts: List[PostGetAllMemberUserSchema] = []
+    model_config = ConfigDict(from_attributes=True)
+class PostMemberUserSchema(BaseModel):
+    # Эта схема будет представлять пользователя В КОНТЕКСТЕ членства в посте
+    # member_user: str # Имя пользователя
+    
+    post_id: int
+    model_config = ConfigDict(from_attributes=True) # Для Pydantic V2
+
+class PostGetAll(Post):
+    
     post_owner_user: str
     posts_members_posts: List[PostGetAllMemberUserSchema] = []
     model_config = ConfigDict(from_attributes=True)
-
-
 class PostMemberCreate(BaseModel):
     # post_id_fk и member_user_fk будут предоставлены в эндпоинте
     pass # Пустая, так как ключи будут параметрами пути/тела запроса

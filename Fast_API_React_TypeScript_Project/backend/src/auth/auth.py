@@ -21,7 +21,7 @@ load_dotenv()
 ACCESS_TOKEN_COOKIE_NAME = "auth_token"
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 1 # 1 часов
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 4 # 1 часов
 
 if not SECRET_KEY:
     raise ValueError("SECRET_KEY не установлена в .env")

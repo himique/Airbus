@@ -16,6 +16,9 @@ class CountriesCapitals(str, enum.Enum):
 #                                         # или любая другая логика для получения "label"
 #     })
 
+class PostStatus(str, enum.Enum):
+    ACTIVE = "active"       # Активный
+    ARCHIVED = "archived"     # Архивный (после истечения даты отправления)
 
 class UserRole(str, enum.Enum): # Используем строковый Enum для удобства
     USER = "user"
